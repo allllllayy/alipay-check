@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>支付宝账单管理 - 数据统计可视化修复</title>
+    <!-- Chart.js CDN，加载失败时自动回退到原生绘制 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+            onerror="window.ChartLoaded = false;"
+            onload="window.ChartLoaded = true;">
+    </script>
+    <style>
+        /* 样式保持原版，仅微调图表容器以保证最小高度 */
+        :root {
+            --primary: #667eea;
+            --accent: #764ba2;
+            --income: #2e7d32;
+            --income-bg: #e8f5e9;
+            --expense: #c62828;
+            --expense-bg: #ffebee;
+            --card-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            --radius: 16px;
+            --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #e8ecf8 0%, #f0e6f6 30%, #fdf2f0 60%, #e8ecf8 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 24px 32px;
+            border-radius: var(--radius);
+            box-shadow: var(--card-shadow);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        header .logo {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #1677ff 0%, #00a3f5 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            color: #1a1a1a;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        header p {
+            color: #888;
+            font-size: 13px;
+            width: 100%;
+            margin-top: 2px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            background: white;
+            padding: 6px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            display: inline-flex;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            color: #555;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            color: white;
+            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.35);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeSlideIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card {
+            background: white;
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .upload-area {
+            border: 3px dashed #d0d5e0;
+            border-radius: 12px;
+            padding: 44px 24px;
+            text-align: center;
+            transition: var(--transition);
+            cursor: pointer;
+            background: #fafbfc;
+        }
+
+        .upload-area:hover,
+        .upload-area.dragover {
+            border-color: var(--primary);
+            background: #f5f6ff;
+        }
+
+        #csvFile {
+            display: none;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            border-radius: 12px;
+            padding: 20px 24px;
+            text-align: center;
+            transition: var(--transition);
+        }
+
+        .stat-card.income {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .stat-card.expense {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            color: white;
+        }
+
+        .stat-card.default {
+            background: #f8f9fb;
+            color: #333;
+            border: 1px solid #e8e8e8;
+        }
+
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .charts-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 310px;
+            width: 100%;
+        }
+
+        .chart-container.tall {
+            height: 360px;
+        }
+
+        .chart-container canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 8px;
+            border: 1px solid #f0f0f0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            min-width: 700px;
+        }
+
+        th,
+        td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        th {
+            background: #fafbfc;
+            font-weight: 600;
+            color: #555;
+            position: sticky;
+            top: 0;
+        }
+
+        tr:hover td {
+            background: #fafbff;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            color: white;
+        }
+
+        .btn-edit {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-delete {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #555;
+            border: 1px solid #e0e0e0;
+        }
+
+        .btn-export {
+            background: #2196F3;
+            color: white;
+        }
+
+        .category-badge.income {
+            background: var(--income-bg);
+            color: var(--income);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+
+        .category-badge.expense {
+            background: var(--expense-bg);
+            color: var(--expense);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .filter-bar select,
+        .filter-bar input {
+            padding: 9px 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            background: #fafbfc;
+        }
+
+        .month-selector {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .month-tag {
+            padding: 6px 14px;
+            background: #f5f5f5;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .month-tag.active {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            color: white;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: var(--radius);
+            padding: 28px;
+            width: 90%;
+            max-width: 480px;
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 14px;
+            right: 18px;
+            font-size: 26px;
+            cursor: pointer;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 11px 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px;
+            color: #bbb;
+        }
+
+        @media (max-width: 900px) {
+            .charts-row {
+                grid-template-columns: 1fr;
+            }
+            .chart-container {
+                height: 280px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div class="logo">💳</div>
+        <h1>支付宝账单管理</h1>
+        <p>支持官方CSV格式 · 数据统计可视化修复版</p>
+    </header>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="upload">📂 文件上传</button>
+        <button class="tab" data-tab="stats">📊 数据统计</button>
+        <button class="tab" data-tab="records">📋 账单明细</button>
+        <button class="tab" data-tab="add">✏️ 手动记账</button>
+    </div>
+
+    <!-- 上传tab -->
+    <div id="upload-tab" class="tab-content active">
+        <div class="card">
+            <div class="card-title">上传支付宝账单</div>
+            <div class="upload-area" id="uploadArea">
+                <span style="font-size:48px;">📁</span>
+                <p>点击选择或拖拽CSV文件</p>
+                <small>支持GBK / UTF-8编码，自动识别表头</small>
+            </div>
+            <input type="file" id="csvFile" accept=".csv">
+        </div>
+    </div>
+
+    <!-- 统计tab - 核心修复区域 -->
+    <div id="stats-tab" class="tab-content">
+        <div class="card">
+            <div class="card-title">财务概览</div>
+            <div class="stats-grid">
+                <div class="stat-card income"><div class="value" id="totalIncome">¥0.00</div><div>总收入</div></div>
+                <div class="stat-card expense"><div class="value" id="totalExpense">¥0.00</div><div>总支出</div></div>
+                <div class="stat-card default"><div class="value" id="totalRecords">0</div><div>记录总数</div></div>
+                <div class="stat-card default"><div class="value" id="balance">¥0.00</div><div>收支差额</div></div>
+            </div>
+        </div>
+        <div class="charts-row">
+            <div class="card">
+                <div class="card-title">支出分类统计</div>
+                <div class="chart-container"><canvas id="expenseChart"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">收入分类统计</div>
+                <div class="chart-container"><canvas id="incomeChart"></canvas></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">月度收支趋势</div>
+            <div class="chart-container tall"><canvas id="monthlyChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- 记录tab -->
+    <div id="records-tab" class="tab-content">
+        <div class="card">
+            <div class="card-title">账单明细 <button class="btn btn-export" id="exportDataBtn">📎 导出</button></div>
+            <div class="filter-bar">
+                <select id="recordTypeFilter"><option value="all">全部</option><option value="income">收入</option><option value="expense">支出</option></select>
+                <select id="categoryFilter"><option value="all">全部分类</option></select>
+                <input type="text" id="searchInput" placeholder="搜索商家/备注">
+            </div>
+            <div class="month-selector" id="monthSelector"></div>
+            <div class="table-wrapper">
+                <table>
+                    <thead><tr><th>日期</th><th>类型</th><th>分类</th><th>商家</th><th>金额</th><th>操作</th></tr></thead>
+                    <tbody id="recordsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 手动记账tab -->
+    <div id="add-tab" class="tab-content">
+        <div class="card">
+            <div class="card-title">手动添加记录</div>
+            <form id="addForm">
+                <div class="form-group"><label>日期</label><input type="date" id="addDate" required></div>
+                <div class="form-group"><label>类型</label><select id="addType"><option value="expense">支出</option><option value="income">收入</option></select></div>
+                <div class="form-group"><label>分类</label><select id="addCategory"></select></div>
+                <div class="form-group"><label>商家/备注</label><input type="text" id="addMerchant" required></div>
+                <div class="form-group"><label>金额</label><input type="number" id="addAmount" step="0.01" required></div>
+                <button type="submit" class="btn btn-primary">添加</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // 判断 Chart.js 是否成功加载
+        const hasChartJS = (typeof Chart !== 'undefined');
+        console.log('Chart.js 加载状态:', hasChartJS ? '✅ 已加载' : '⚠️ 未加载，使用内置绘图');
+
+        // 分类定义
+        const EXPENSE_CATEGORIES = ['餐饮美食','交通出行','购物消费','居家生活','休闲娱乐','医疗健康','教育学习','其他支出'];
+        const INCOME_CATEGORIES = ['工资收入','投资理财','红包转账','兼职收入','其他收入'];
+
+        let records = [];
+        let chartInstances = {};
+        let currentMonthFilter = 'all';
+
+        // ========== 数据存储 ==========
+        function saveToStorage() {
+            localStorage.setItem('alipay_bills_v5', JSON.stringify(records));
+        }
+        function loadFromStorage() {
+            const saved = localStorage.getItem('alipay_bills_v5');
+            if (saved) records = JSON.parse(saved);
+            else records = [];
+        }
+
+        // ========== CSV解析 ==========
+        function parseAlipayCSV(content) {
+            const lines = content.split(/\r?\n/).filter(l => l.trim());
+            let headerIdx = -1;
+            for (let i = 0; i < Math.min(lines.length, 30); i++) {
+                if (lines[i].includes('交易时间') && (lines[i].includes('收/支') || lines[i].includes('金额'))) {
+                    headerIdx = i; break;
+                }
+            }
+            if (headerIdx === -1) return [];
+            const header = lines[headerIdx].split(',');
+            const col = {
+                date: header.findIndex(h => h && h.includes('交易时间')),
+                type: header.findIndex(h => h === '收/支' || h === '收支'),
+                amount: header.findIndex(h => h === '金额'),
+                merchant: header.findIndex(h => h === '交易对方'),
+                category: header.findIndex(h => h === '交易分类'),
+                status: header.findIndex(h => h === '交易状态')
+            };
+            if (col.date === -1 || col.type === -1 || col.amount === -1) return [];
+
+            const result = [];
+            for (let i = headerIdx + 1; i < lines.length; i++) {
+                const parts = lines[i].split(',');
+                const max = Math.max(col.date, col.type, col.amount, col.merchant !== -1 ? col.merchant : 0);
+                if (parts.length < max + 1) continue;
+                const date = (parts[col.date] || '').trim().split(' ')[0];
+                const typeRaw = (parts[col.type] || '').trim();
+                const amount = parseFloat((parts[col.amount] || '').replace(/[¥$,，]/g, ''));
+                if (isNaN(amount) || amount === 0) continue;
+                let type = typeRaw.includes('收入') ? 'income' : (typeRaw.includes('支出') ? 'expense' : null);
+                if (!type) continue;
+                if (col.status !== -1 && parts[col.status] && !parts[col.status].includes('成功')) continue;
+                let merchant = col.merchant !== -1 ? parts[col.merchant]?.trim() || '未知' : '未知';
+                let category = col.category !== -1 ? parts[col.category]?.trim() : '';
+                if (!category || category === '') category = type === 'income' ? '其他收入' : '其他支出';
+                result.push({ id: Date.now() + Math.random(), date, type, category, merchant, amount });
+            }
+            return result;
+        }
+
+        function processFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                let newRecords = parseAlipayCSV(e.target.result);
+                if (newRecords.length === 0) {
+                    const gbkReader = new FileReader();
+                    gbkReader.onload = function(e2) {
+                        const gbkRecords = parseAlipayCSV(e2.target.result);
+                        if (gbkRecords.length === 0) alert('未解析到有效账单');
+                        else mergeAndRefresh(gbkRecords);
+                    };
+                    gbkReader.readAsText(file, 'GBK');
+                } else mergeAndRefresh(newRecords);
+            };
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        function mergeAndRefresh(newRecords) {
+            const existingKeys = new Set(records.map(r => `${r.date}|${r.merchant}|${r.amount}|${r.type}`));
+            const unique = newRecords.filter(r => !existingKeys.has(`${r.date}|${r.merchant}|${r.amount}|${r.type}`));
+            records = [...unique, ...records];
+            records.sort((a,b) => b.date.localeCompare(a.date));
+            saveToStorage();
+            refreshAll();
+            alert(`导入 ${unique.length} 条新记录`);
+        }
+
+        // ========== UI刷新 ==========
+        function refreshAll() {
+            updateStats();
+            updateTable();
+            updateMonthSelector();
+            updateCategorySelectors();
+            if (document.getElementById('stats-tab').classList.contains('active')) {
+                renderCharts();
+            }
+        }
+
+        function updateStats() {
+            const inc = records.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0);
+            const exp = records.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0);
+            document.getElementById('totalIncome').innerText = `¥${inc.toFixed(2)}`;
+            document.getElementById('totalExpense').innerText = `¥${exp.toFixed(2)}`;
+            document.getElementById('totalRecords').innerText = records.length;
+            document.getElementById('balance').innerText = `¥${(inc-exp).toFixed(2)}`;
+        }
+
+        function updateTable() {
+            const typeF = document.getElementById('recordTypeFilter').value;
+            const catF = document.getElementById('categoryFilter').value;
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            let filtered = records.filter(r => {
+                if (typeF !== 'all' && r.type !== typeF) return false;
+                if (catF !== 'all' && r.category !== catF) return false;
+                if (search && !r.merchant.toLowerCase().includes(search)) return false;
+                if (currentMonthFilter !== 'all' && !r.date.startsWith(currentMonthFilter)) return false;
+                return true;
+            });
+            const tbody = document.getElementById('recordsBody');
+            if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无数据</td></tr>';
+            else tbody.innerHTML = filtered.map(r => `
+                    <tr>
+                        <td>${r.date}</td>
+                        <td><span class="category-badge ${r.type}">${r.type==='income'?'收入':'支出'}</span></td>
+                        <td>${r.category}</td>
+                        <td>${r.merchant}</td>
+                        <td style="color:${r.type==='income'?'#2e7d32':'#c62828'}">${r.type==='income'?'+':'-'}¥${r.amount.toFixed(2)}</td>
+                        <td><button class="btn btn-edit" onclick="editRecord(${r.id})">✏️</button><button class="btn btn-delete" onclick="deleteRecord(${r.id})">🗑️</button></td>
+                    </tr>`).join('');
+        }
+
+        function updateMonthSelector() {
+            const months = [...new Set(records.map(r=>r.date.substring(0,7)))].sort().reverse();
+            const container = document.getElementById('monthSelector');
+            container.innerHTML = `<span class="month-tag${currentMonthFilter==='all'?' active':''}" data-month="all">全部</span>`;
+            months.forEach(m => {
+                container.innerHTML += `<span class="month-tag${currentMonthFilter===m?' active':''}" data-month="${m}">${m}</span>`;
+            });
+            container.querySelectorAll('.month-tag').forEach(tag => {
+                tag.onclick = function() {
+                    container.querySelectorAll('.month-tag').forEach(t=>t.classList.remove('active'));
+                    this.classList.add('active');
+                    currentMonthFilter = this.dataset.month;
+                    updateTable();
+                };
+            });
+        }
+
+        function updateCategorySelectors() {
+            const cats = [...new Set(records.map(r=>r.category))];
+            const sel = document.getElementById('categoryFilter');
+            sel.innerHTML = '<option value="all">全部分类</option>' + cats.map(c=>`<option>${c}</option>`).join('');
+        }
+
+        // ========== 图表渲染（兼容Chart.js和原生Canvas） ==========
+        function destroyCharts() {
+            Object.values(chartInstances).forEach(inst => { if (inst) inst.destroy(); });
+            chartInstances = {};
+        }
+
+        function renderCharts() {
+            destroyCharts();
+            // 延迟确保DOM完全可见且尺寸正确
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    try {
+                        if (hasChartJS) {
+                            drawChartJS('expenseChart', 'expense');
+                            drawChartJS('incomeChart', 'income');
+                            drawMonthlyBarChartJS();
+                        } else {
+                            // 回退到原生绘制
+                            drawNativePie('expenseChart', 'expense');
+                            drawNativePie('incomeChart', 'income');
+                            drawNativeMonthlyBar('monthlyChart');
+                        }
+                    } catch (e) {
+                        console.error('图表渲染失败:', e);
+                        // 最终回退
+                        drawNativePie('expenseChart', 'expense');
+                        drawNativePie('incomeChart', 'income');
+                        drawNativeMonthlyBar('monthlyChart');
+                    }
+                }, 80);
+            });
+        }
+
+        // ---- Chart.js 实现 ----
+        function drawChartJS(canvasId, type) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const filtered = records.filter(r => r.type === type);
+            const totals = {};
+            filtered.forEach(r => totals[r.category] = (totals[r.category]||0)+r.amount);
+            const labels = Object.keys(totals);
+            const data = Object.values(totals);
+            if (labels.length === 0) {
+                drawEmptyState(canvas);
+                return;
+            }
+            const colors = type === 'expense' ?
+                ['#FF6384','#FF9F40','#FFCE56','#4BC0C0','#9966FF','#36A2EB','#C9CBCF'] :
+                ['#4CAF50','#66BB6A','#81C784','#A5D6A7','#C8E6C9','#388E3C','#2E7D32'];
+
+            chartInstances[canvasId] = new Chart(canvas, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors.slice(0, labels.length),
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 15, usePointStyle: true } }
+                    }
+                }
+            });
+        }
+
+        function drawMonthlyBarChartJS() {
+            const canvas = document.getElementById('monthlyChart');
+            if (!canvas) return;
+            const monthly = {};
+            records.forEach(r => {
+                const m = r.date.substring(0,7);
+                if (!monthly[m]) monthly[m] = { income:0, expense:0 };
+                monthly[m][r.type] += r.amount;
+            });
+            const months = Object.keys(monthly).sort();
+            if (months.length === 0) {
+                drawEmptyState(canvas);
+                return;
+            }
+            const incomeData = months.map(m => monthly[m].income);
+            const expenseData = months.map(m => monthly[m].expense);
+
+            chartInstances['monthlyChart'] = new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: months,
+                    datasets: [
+                        { label: '收入', data: incomeData, backgroundColor: '#4CAF50', borderRadius: 5 },
+                        { label: '支出', data: expenseData, backgroundColor: '#f44336', borderRadius: 5 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        // ---- 原生Canvas回退绘制 ----
+        function drawNativePie(canvasId, type) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.parentElement.clientWidth;
+            const h = canvas.parentElement.clientHeight;
+            canvas.width = w * devicePixelRatio;
+            canvas.height = h * devicePixelRatio;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+            ctx.scale(devicePixelRatio, devicePixelRatio);
+            ctx.clearRect(0,0,w,h);
+
+            const filtered = records.filter(r => r.type === type);
+            if (filtered.length === 0) {
+                ctx.fillStyle = '#999';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无数据', w/2, h/2);
+                return;
+            }
+            const totals = {};
+            filtered.forEach(r => totals[r.category] = (totals[r.category]||0)+r.amount);
+            const labels = Object.keys(totals);
+            const values = Object.values(totals);
+            const total = values.reduce((a,b)=>a+b,0);
+            const colors = type==='expense' ? ['#FF6384','#FF9F40','#FFCE56','#4BC0C0','#9966FF','#36A2EB'] : ['#4CAF50','#66BB6A','#81C784','#A5D6A7','#C8E6C9'];
+            let start = -Math.PI/2;
+            const cx = w/2, cy = h/2, r = Math.min(w,h)/2 - 30;
+            labels.forEach((_,i)=>{
+                const angle = (values[i]/total)*2*Math.PI;
+                ctx.beginPath();
+                ctx.moveTo(cx,cy);
+                ctx.arc(cx,cy,r,start,start+angle);
+                ctx.fillStyle = colors[i%colors.length];
+                ctx.fill();
+                start += angle;
+            });
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(cx,cy,r*0.6,0,2*Math.PI);
+            ctx.fill();
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`¥${total.toFixed(2)}`, cx, cy-5);
+            ctx.font = '12px sans-serif';
+            ctx.fillStyle = '#666';
+            ctx.fillText(type==='expense'?'总支出':'总收入', cx, cy+12);
+        }
+
+        function drawNativeMonthlyBar(canvasId) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.parentElement.clientWidth;
+            const h = canvas.parentElement.clientHeight;
+            canvas.width = w * devicePixelRatio;
+            canvas.height = h * devicePixelRatio;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+            ctx.scale(devicePixelRatio, devicePixelRatio);
+            ctx.clearRect(0,0,w,h);
+
+            const monthly = {};
+            records.forEach(r => {
+                const m = r.date.substring(0,7);
+                if (!monthly[m]) monthly[m]={income:0,expense:0};
+                monthly[m][r.type] += r.amount;
+            });
+            const months = Object.keys(monthly).sort();
+            if (months.length === 0) {
+                ctx.fillStyle = '#999';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无数据', w/2, h/2);
+                return;
+            }
+            const pad = {top:30,right:20,bottom:50,left:60};
+            const chartW = w-pad.left-pad.right, chartH = h-pad.top-pad.bottom;
+            const maxVal = Math.max(...months.map(m=>Math.max(monthly[m].income, monthly[m].expense)), 1);
+            const scale = chartH/maxVal;
+            const groupW = chartW/months.length;
+            const barW = groupW*0.3, gap = (groupW-barW*2)/3;
+
+            // 网格线
+            for(let i=0;i<=4;i++){
+                const y = pad.top + chartH/4*i;
+                ctx.beginPath();
+                ctx.moveTo(pad.left, y);
+                ctx.lineTo(w-pad.right, y);
+                ctx.strokeStyle = '#eee';
+                ctx.stroke();
+                ctx.fillStyle = '#888';
+                ctx.font = '10px sans-serif';
+                ctx.fillText(`¥${(maxVal*(1-i/4)).toFixed(0)}`, pad.left-5, y+4);
+            }
+            months.forEach((m,i)=>{
+                const x = pad.left + i*groupW + gap;
+                const incH = monthly[m].income*scale;
+                const expH = monthly[m].expense*scale;
+                ctx.fillStyle = '#4CAF50';
+                ctx.fillRect(x, pad.top+chartH-incH, barW, incH);
+                ctx.fillStyle = '#f44336';
+                ctx.fillRect(x+barW+gap, pad.top+chartH-expH, barW, expH);
+                ctx.fillStyle = '#444';
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(m.substring(5), x+barW/2, h-20);
+                ctx.fillText(m.substring(5), x+barW+gap+barW/2, h-20);
+            });
+        }
+
+        function drawEmptyState(canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.fillStyle = '#999';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('暂无数据', canvas.width/2, canvas.height/2);
+        }
+
+        // ========== 事件绑定 ==========
+        function bindEvents() {
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    this.classList.add('active');
+                    const target = document.getElementById(this.dataset.tab + '-tab');
+                    if (target) target.classList.add('active');
+                    if (this.dataset.tab === 'stats') renderCharts();
+                });
+            });
+
+            document.getElementById('uploadArea').addEventListener('click', ()=>document.getElementById('csvFile').click());
+            document.getElementById('uploadArea').addEventListener('dragover', e=>{e.preventDefault(); e.currentTarget.classList.add('dragover')});
+            document.getElementById('uploadArea').addEventListener('dragleave', e=>e.currentTarget.classList.remove('dragover'));
+            document.getElementById('uploadArea').addEventListener('drop', e=>{
+                e.preventDefault();
+                e.currentTarget.classList.remove('dragover');
+                if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+            });
+            document.getElementById('csvFile').addEventListener('change', e => { if(e.target.files[0]) processFile(e.target.files[0]); });
+
+            document.getElementById('addForm').addEventListener('submit', e => {
+                e.preventDefault();
+                const record = {
+                    id: Date.now(),
+                    date: document.getElementById('addDate').value,
+                    type: document.getElementById('addType').value,
+                    category: document.getElementById('addCategory').value,
+                    merchant: document.getElementById('addMerchant').value.trim(),
+                    amount: parseFloat(document.getElementById('addAmount').value)
+                };
+                records.unshift(record);
+                saveToStorage();
+                refreshAll();
+            });
+
+            document.getElementById('recordTypeFilter').addEventListener('change', updateTable);
+            document.getElementById('categoryFilter').addEventListener('change', updateTable);
+            document.getElementById('searchInput').addEventListener('input', updateTable);
+            document.getElementById('exportDataBtn').addEventListener('click', ()=>{
+                if(records.length===0) return;
+                const csv = [['日期','类型','分类','商家','金额']];
+                records.forEach(r => csv.push([r.date, r.type==='income'?'收入':'支出', r.category, r.merchant, r.amount]));
+                const blob = new Blob(['\uFEFF'+csv.map(r=>r.map(c=>`"${c}"`).join(',')).join('\n')], {type:'text/csv'});
+                const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='账单导出.csv'; a.click();
+            });
+
+            window.editRecord = function(id) {
+                const r = records.find(r=>r.id===id);
+                if(!r) return;
+                document.getElementById('editDate').value = r.date;
+                document.getElementById('editType').value = r.type;
+                document.getElementById('editCategory').value = r.category;
+                document.getElementById('editMerchant').value = r.merchant;
+                document.getElementById('editAmount').value = r.amount;
+            };
+            window.deleteRecord = function(id) {
+                if(confirm('确定删除？')) { records = records.filter(r=>r.id!==id); saveToStorage(); refreshAll(); }
+            };
+
+            window.addEventListener('resize', () => {
+                if (document.getElementById('stats-tab').classList.contains('active')) {
+                    renderCharts();
+                }
+            });
+        }
+
+        // 初始化
+        loadFromStorage();
+        bindEvents();
+        refreshAll();
+        document.getElementById('addDate').value = new Date().toISOString().split('T')[0];
+        // 填充分类下拉
+        const fillCategory = () => {
+            const type = document.getElementById('addType').value;
+            const cats = type==='income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+            const sel = document.getElementById('addCategory');
+            sel.innerHTML = cats.map(c=>`<option>${c}</option>`).join('');
+        };
+        document.getElementById('addType').addEventListener('change', fillCategory);
+        fillCategory();
+    })();
+</script>
+</body>
+</html>
