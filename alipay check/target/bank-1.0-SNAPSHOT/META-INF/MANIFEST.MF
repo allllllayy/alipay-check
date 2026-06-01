@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Created-By: IntelliJ IDEA
+Built-By: allla
+Build-Jdk: Microsoft OpenJDK 17.0.19
+
