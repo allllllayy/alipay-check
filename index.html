@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分布式智能财务终端 · Fintech 旗舰版</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+            onerror="window.ChartLoaded = false;"
+            onload="window.ChartLoaded = true;">
+    </script>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div class="logo">🏦</div>
+        <div>
+            <h1>智能财务终端矩阵 (Fintech UI)</h1>
+            <p>金融级指标量化 · 动态资产流向监测 · 结构化风控研报 · Web3 确权</p>
+        </div>
+    </header>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="upload">📂 账本溯源</button>
+        <button class="tab" data-tab="stats">📈 金融量化与视界</button>
+        <button class="tab" data-tab="records">🧾 分布式明细</button>
+        <button class="tab" data-tab="add">✍️ 链下记账</button>
+        <button class="tab" data-tab="budget">🛡️ 风控与智能研报</button>
+    </div>
+
+    <div id="upload-tab" class="tab-content active">
+        <div class="card">
+            <div class="card-title">导入交易流水集</div>
+            <div class="upload-area" id="uploadArea">
+                <span style="font-size: 56px; display: block; margin-bottom: 16px;">📥</span>
+                <p style="font-size: 18px; font-weight: 600; color: #1e293b;">点击选择或拖拽支付宝/微信 CSV 文件</p>
+                <small style="color: #64748b; margin-top: 8px; display: block;">纯前端沙盒解析：数据零上传，严守资产隐私安全边界</small>
+            </div>
+            <input type="file" id="csvFile" accept=".csv">
+        </div>
+    </div>
+
+    <div id="stats-tab" class="tab-content">
+        <div class="card">
+            <div class="card-title">核心资产指标监测矩阵 (KPIs)</div>
+            <div class="stats-grid">
+                <div class="stat-card neutral"><div class="value count-up" id="balance">0.00</div><div class="label">净流动资金 (Net Flow)</div></div>
+                <div class="stat-card income"><div class="value count-up" id="totalIncome">0.00</div><div class="label">资产总流入</div></div>
+                <div class="stat-card expense"><div class="value count-up" id="totalExpense">0.00</div><div class="label">资产总流出</div></div>
+                <div class="stat-card warning"><div class="value count-up" id="burnRate">0.00</div><div class="label">日均消耗速率 (Burn Rate)</div><div class="desc">平均每日流出量级</div></div>
+                <div class="stat-card default"><div class="value count-up" id="maxExpense" style="color:var(--expense)">0.00</div><div class="label">单笔最大回撤 (Max Drawdown)</div><div class="desc">周期内单次最高额度支出</div></div>
+                <div class="stat-card finance"><div class="value count-up" id="savingsRate" data-suffix="%">0.0</div><div class="label">储蓄蓄水率 (Savings Rate)</div></div>
+                <div class="stat-card finance"><div class="value count-up" id="volatility">0.00</div><div class="label">流动性波动率 (Volatility, σ)</div></div>
+                <div class="stat-card default"><div class="value count-up" id="engelCoefficient" data-suffix="%" style="color:var(--expense)">0.0</div><div class="label">恩格尔系数 (Engel)</div></div>
+            </div>
+        </div>
+
+        <div class="charts-row">
+            <div class="card">
+                <div class="card-title">资产累计演进水位面状图</div>
+                <div class="chart-wrapper"><div class="chart-container"><canvas id="cumulativeChart"></canvas></div></div>
+            </div>
+            <div class="card">
+                <div class="card-title">资本流出黑洞 Top 5 节点</div>
+                <div class="chart-wrapper"><div class="chart-container"><canvas id="merchantChart"></canvas></div></div>
+            </div>
+        </div>
+
+        <div class="charts-row">
+            <div class="card">
+                <div class="card-title">流出结构拆解 (Doughnut)</div>
+                <div class="chart-wrapper"><div class="chart-container"><canvas id="expenseChart"></canvas></div></div>
+            </div>
+            <div class="card">
+                <div class="card-title">财务行为多维雷达画像</div>
+                <div class="chart-wrapper"><div class="chart-container"><canvas id="radarChart"></canvas></div></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">资产流动性周期趋势 (复合指标)</div>
+            <div class="chart-container tall"><canvas id="monthlyChart"></canvas></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">🏆 资本流出偏好排行榜</div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>排行</th>
+                        <th>业务版图</th>
+                        <th>沉淀金额</th>
+                        <th>资本权重 (占比)</th>
+                    </tr>
+                    </thead>
+                    <tbody id="categoryRankBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="records-tab" class="tab-content">
+        <div class="card">
+            <div class="card-title">
+                分布式明细账本
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="exportCsvBtn">📎 导出审计报表</button>
+                    <button class="btn btn-crypto" id="generateHashBtn">⛓️ 数据确权提取哈希</button>
+                </div>
+            </div>
+
+            <div class="filter-bar" style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+                <select id="typeFilter" class="form-control">
+                    <option value="all">全量交易池 (All)</option>
+                    <option value="expense">仅看流出 (Expense)</option>
+                    <option value="income">仅看流入 (Income)</option>
+                </select>
+                <input type="text" id="searchInput" class="form-control" placeholder="检索交易节点、业务分类、标签或 TxHash..." style="flex: 1; min-width: 250px;">
+            </div>
+
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>TxHash (交易指纹)</th>
+                        <th>时间戳</th>
+                        <th>流向</th>
+                        <th>分类</th>
+                        <th>交易对手节点</th>
+                        <th>金额(¥)</th>
+                        <th>智能标签</th>
+                        <th>网络状态</th>
+                    </tr>
+                    </thead>
+                    <tbody id="recordsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="add-tab" class="tab-content">
+        <div class="card">
+            <div class="card-title">注入单笔测试数据 (链下生成)</div>
+            <form id="addForm" style="max-width: 500px;">
+                <div class="form-group">
+                    <label>发生时间 (Timestamp)</label>
+                    <input type="date" id="addDate" class="form-control" style="width:100%;" required>
+                </div>
+                <div class="form-group" style="margin-top:15px;">
+                    <label>资金流向 (Direction)</label>
+                    <select id="addType" class="form-control" style="width:100%;">
+                        <option value="expense">流出 (Expense)</option>
+                        <option value="income">流入 (Income)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-top:15px;">
+                    <label>业务分类 (Category)</label>
+                    <select id="addCategory" class="form-control" style="width:100%;"></select>
+                </div>
+                <div class="form-group" style="margin-top:15px;">
+                    <label>对手方节点 (Counterparty)</label>
+                    <input type="text" id="addMerchant" class="form-control" style="width:100%;" required placeholder="如：外部钱包地址 或 某星巴克门店">
+                </div>
+                <div class="form-group" style="margin-top:15px;">
+                    <label>发生额 (Amount)</label>
+                    <input type="number" id="addAmount" class="form-control" style="width:100%;" step="0.01" required placeholder="0.00">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 25px; font-size: 16px;">提交至本地链账本</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="budget-tab" class="tab-content">
+        <div class="card">
+            <div class="card-title">📅 周期资金熔断策略合约部署</div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+                <label style="font-weight:600;">监控纪元：</label>
+                <input type="month" id="budgetMonth" style="padding:10px;border:1px solid #cbd5e1;border-radius:10px;">
+                <label style="font-weight:600;margin-left:10px;">风控熔断阈值 (¥)：</label>
+                <input type="number" id="budgetAmount" step="0.01" placeholder="设定流出上限" style="padding:10px;border:1px solid #cbd5e1;border-radius:10px;width:140px;">
+                <button class="btn btn-primary" id="saveBudgetBtn">部署/更新风控合约</button>
+            </div>
+            <div id="budgetStatus" style="margin-top:24px;"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title" style="border-bottom:none;">📝 算法级结构化研报 (Auto-Report)</div>
+            <div id="reportContainer" class="report-grid">
+                <div style="grid-column: 1 / -1; text-align:center; padding:40px; color:#94a3b8;">尚未生成数据模型，请导入流水并选择纪元。</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="app.js" defer></script>
+</body>
+</html>
