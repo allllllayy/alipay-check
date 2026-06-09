@@ -162,11 +162,16 @@
             `;
         } else bStatus.innerHTML = '<span style="color:#64748b;">未部署风控合约。</span>';
 
+        // 【核心更新】：获取铸造按钮并触发动态显隐控制
+        const mintBtn = document.getElementById('mintNftBtn');
         const rGrid = document.getElementById('reportContainer');
+
         if(mRecs.length === 0) {
             rGrid.innerHTML = '<div style="grid-column: 1 / -1; color:#94a3b8; text-align:center;">此纪元无数据碎片。</div>';
+            if (mintBtn) mintBtn.style.display = 'none'; // 无数据时隐藏铸造入口
             return;
         }
+        if (mintBtn) mintBtn.style.display = 'inline-flex'; // 确立模型后开启铸造入口
 
         const mCounts = {}; const mAmts = {};
         mExpRecs.forEach(r => {
@@ -175,9 +180,35 @@
         });
         const topMerchantAmt = Object.entries(mAmts).sort((a,b) => b[1] - a[1])[0] || ['无', 0];
         const topMerchantFreq = Object.entries(mCounts).sort((a,b) => b[1] - a[1])[0] || ['无', 0];
-        const foodExp = mExpRecs.filter(r => r.category.includes('餐饮')).reduce((s, r) => s + r.amount, 0);
+        const foodExp = mExpRecs.filter(r => r.category.includes('餐饮') || r.category.includes('买菜')).reduce((s, r) => s + r.amount, 0);
         const mEngel = mExp > 0 ? (foodExp / mExp) * 100 : 0;
         const maxR = mExpRecs.reduce((m, r) => r.amount > m.amount ? r : m, {amount:0, merchant:''});
+
+        // 信用算力加权矩阵算法
+        let score = 60;
+        if (mInc > 0) {
+            const saveRate = (mInc - mExp) / mInc;
+            score += Math.max(-25, Math.min(25, saveRate * 50));
+        } else if (mExp > 0 && mInc === 0) { score -= 20; }
+        if (mExp > 0) { score += (30 - mEngel) * 0.3; }
+        let contractStatus = '未部署';
+        if (budget > 0) {
+            const usage = mExp / budget;
+            if (usage > 1) { score -= 15; contractStatus = '❌ 熔断违约'; }
+            else if (usage > 0.8) { score -= 5; contractStatus = '⚠️ 风险边缘'; }
+            else { score += 10; contractStatus = '✅ 完美履约'; }
+        }
+        if (mExp > 0 && topMerchantAmt[1] / mExp > 0.4) { score -= 5; }
+        score = Math.max(1, Math.min(99, Math.round(score)));
+        if (score > 90 && mInc > 10000 && (mInc - mExp) / mInc > 0.6) score = 100;
+
+        let rank, rankClass, rankDesc;
+        if (score >= 90) { rank = 'SSS'; rankClass = 'rank-SSS'; rankDesc = '极度健康 · Web3 巨鲸节点'; }
+        else if (score >= 80) { rank = 'S'; rankClass = 'rank-S'; rankDesc = '稳健 · 优质信用资产'; }
+        else if (score >= 70) { rank = 'A'; rankClass = 'rank-A'; rankDesc = '良好 · 流动性充沛'; }
+        else if (score >= 60) { rank = 'B'; rankClass = 'rank-B'; rankDesc = '亚健康 · 存在敞口风险'; }
+        else if (score >= 40) { rank = 'C'; rankClass = 'rank-C'; rankDesc = '危险 · 濒临熔断边界'; }
+        else { rank = 'D'; rankClass = 'rank-D'; rankDesc = '极度危险 · 资产枯竭预警'; }
 
         let riskTags = '';
         if(mEngel > 40) riskTags += `<span class="warning-tag">🚨 恩格尔系数过高 (${mEngel.toFixed(1)}%)</span>`;
@@ -186,6 +217,25 @@
         if(riskTags === '') riskTags = `<span class="info-tag">✅ 流动性架构健康</span>`;
 
         rGrid.innerHTML = `
+            <div class="credit-score-card">
+                <div style="flex: 1; min-width: 250px;">
+                    <div class="score-title">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        链上信用算力评级
+                    </div>
+                    <div class="score-display">
+                        <span class="score-value">${score}</span>
+                        <span class="score-rank ${rankClass}">${rank}</span>
+                    </div>
+                    <div class="score-desc">状态共识：${rankDesc}</div>
+                </div>
+                <div class="score-factors">
+                    <div class="factor-item">储蓄蓄水率<strong style="color: ${mInc>mExp ? '#34d399' : '#ef4444'}">${mInc>0?((mInc-mExp)/mInc*100).toFixed(0):0}%</strong></div>
+                    <div class="factor-item">恩格尔修正<strong style="color: ${mEngel<30 ? '#34d399' : (mEngel>50?'#ef4444':'#fbd38d')}">${mEngel.toFixed(1)}%</strong></div>
+                    <div class="factor-item">风控纪律<strong style="color: ${contractStatus.includes('✅')?'#34d399':(contractStatus.includes('❌')?'#ef4444':'white')}">${contractStatus}</strong></div>
+                </div>
+            </div>
+
             <div class="report-module">
                 <h4>📊 宏观流动性诊断</h4>
                 <p>总流入量级：<strong>¥${mInc.toLocaleString()}</strong></p>
@@ -474,16 +524,80 @@
         });
     }
 
+    // ====== 保存风控合约按钮逻辑 ======
     const saveBudgetBtn = document.getElementById('saveBudgetBtn');
     if (saveBudgetBtn) {
         saveBudgetBtn.addEventListener('click', () => {
             const m = document.getElementById('budgetMonth').value;
             const a = parseFloat(document.getElementById('budgetAmount').value);
-            if(m && a >= 0) { budgets[m] = a; saveStorage(); refreshAll(); }
+            if (m && a >= 0) {
+                budgets[m] = a;
+                saveStorage();
+                refreshAll();
+            }
         });
     }
 
-    window.addEventListener('resize', () => { if(document.getElementById('stats-tab') && document.getElementById('stats-tab').classList.contains('active')) renderCharts(); });
+    // ====== 【修复：独立出来】铸造 NFT 快照按钮逻辑 ======
+    const mintNftBtn = document.getElementById('mintNftBtn');
+    if (mintNftBtn) {
+        mintNftBtn.addEventListener('click', () => {
+            const reportContainer = document.getElementById('reportContainer');
+            if (!reportContainer || typeof html2canvas === 'undefined') {
+                alert('环境就绪中或无可铸造的研报碎片（请确认已连接网络并成功加载 html2canvas）');
+                return;
+            }
+
+            // 修改交互反馈：伪装上链打包动画
+            const originalText = mintNftBtn.innerHTML;
+            mintNftBtn.innerHTML = '⚡ 正在上链打包快照...';
+            mintNftBtn.disabled = true;
+
+            // 执行高级影子克隆截图
+            html2canvas(reportContainer, {
+                backgroundColor: null, // 允许透明或自定义
+                scale: 2,             // Retina 双倍高清晰度采样
+                useCORS: true,        // 跨域安全策略预备
+                logging: false,       // 关闭冗余调试日志
+                onclone: (clonedDoc) => {
+                    // 极其巧妙的黑客视觉魔法：在内存的克隆体中为容器注入精美的发光背景，使其脱离单调的白底
+                    const clonedContainer = clonedDoc.getElementById('reportContainer');
+                    if (clonedContainer) {
+                        clonedContainer.style.padding = '32px';
+                        clonedContainer.style.background = 'linear-gradient(135deg, #f3f4f6 0%, #e0e7ff 50%, #f3e8ff 100%)';
+                        clonedContainer.style.borderRadius = '24px';
+                        clonedContainer.style.width = '1000px'; // 强行锁死黄金画幅宽度，防止拉伸变形
+                    }
+                }
+            }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const month = document.getElementById('budgetMonth').value || 'Epoch';
+
+                // 触发客户端隐式流下载
+                const link = document.createElement('a');
+                link.download = `Fintech_Credit_NFT_Snapshot_${month}.png`;
+                link.href = imgData;
+                link.click();
+
+                // 还原状态
+                mintNftBtn.innerHTML = originalText;
+                mintNftBtn.disabled = false;
+
+                // 弹出沉浸式共识回执提示
+                alert(`🎉 凭证铸造成功！\n\n研报快照已通过 SHA-256 树根共识进行前端确权并成功导出为本地图片。\n\n【🚀 商业化 PoC 演示要点】：\n该图片已将您的“TxHash交易指纹”与“100分制算力评级”封装在一起，在未来去中心化金融（DeFi）生态中，这张图片即可作为用户的财务健康凭证（Proof of Financial Health），用于向去中心化借贷平台直接申请低息贷款！`);
+            }).catch(err => {
+                console.error('Minting error:', err);
+                mintNftBtn.innerHTML = originalText;
+                mintNftBtn.disabled = false;
+                alert('快照铸造发生意外断开，请检查控制台。');
+            });
+        });
+    }
+
+    // ====== 监听窗口变化重绘图表 ======
+    window.addEventListener('resize', () => {
+        if(document.getElementById('stats-tab') && document.getElementById('stats-tab').classList.contains('active')) renderCharts();
+    });
 
     // ========== 10. 全面初始化运行 ==========
     loadStorage();

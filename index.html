@@ -9,6 +9,7 @@
             onerror="window.ChartLoaded = false;"
             onload="window.ChartLoaded = true;">
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
 <div class="container">
@@ -185,7 +186,10 @@
         </div>
 
         <div class="card">
-            <div class="card-title" style="border-bottom:none;">📝 算法级结构化研报 (Auto-Report)</div>
+            <div class="card-title" style="border-bottom:none;">
+                <span>📝 算法级结构化研报 (Auto-Report)</span>
+                <button class="btn btn-crypto" id="mintNftBtn" style="display: none; font-size: 13px; padding: 6px 14px;">📸 铸造研报快照 (Mint as NFT)</button>
+            </div>
             <div id="reportContainer" class="report-grid">
                 <div style="grid-column: 1 / -1; text-align:center; padding:40px; color:#94a3b8;">尚未生成数据模型，请导入流水并选择纪元。</div>
             </div>
