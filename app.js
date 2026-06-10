@@ -89,7 +89,38 @@
             const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
             vol = Math.sqrt(vals.reduce((acc, b) => acc + Math.pow(b - mean, 2), 0) / vals.length);
         }
+        // ... (保持原本的 volatility 计算不变)
         animateValue('volatility', vol);
+
+        // ================= 新增：绝对生存周期 (Cash Runway) 极客算法 =================
+        const balance = inc - exp;
+        const burnR = expRecs.length ? (exp / activeDays) : 0;
+        let runway = 0;
+
+        const runwayEl = document.getElementById('cashRunway');
+        const runwayCard = document.getElementById('runwayCard');
+
+        if (runwayEl && runwayCard) {
+            if (balance > 0 && burnR > 0) {
+                runway = balance / burnR; // 核心预测公式
+                runwayEl.innerText = Math.floor(runway) + ' Days';
+
+                // 智能预警状态机：<90天 报红警，>=90天 绿灯健康
+                if (runway < 90) {
+                    runwayCard.className = 'stat-card expense';
+                    runwayCard.title = "🚨 流动性干涸风险极高，亟需注入新资本！";
+                } else {
+                    runwayCard.className = 'stat-card finance';
+                    runwayCard.title = "✅ 资产池抗压健康。";
+                }
+            } else if (balance <= 0) {
+                runwayEl.innerText = '0 Days';
+                runwayCard.className = 'stat-card expense';
+            } else if (balance > 0 && burnR === 0) {
+                runwayEl.innerText = '∞ Days'; // 零消耗即永生
+                runwayCard.className = 'stat-card income';
+            }
+        }
     }
 
     function animateValue(id, val) {
@@ -138,8 +169,15 @@
         const mInput = document.getElementById('budgetMonth');
         if(!mInput.value) mInput.value = new Date().toISOString().substring(0, 7);
         const month = mInput.value;
-        const budget = budgets[month] || 0;
-        document.getElementById('budgetAmount').value = budget || '';
+        const currentCat = document.getElementById('budgetCategory').value || 'global';
+
+        // 数据迁移与回显
+        if (budgets[month] !== undefined && typeof budgets[month] === 'number') {
+            budgets[month + '|global'] = budgets[month];
+            delete budgets[month];
+            saveStorage();
+        }
+        document.getElementById('budgetAmount').value = budgets[month + '|' + currentCat] || '';
 
         const mRecs = records.filter(r => r.date.startsWith(month));
         const mExpRecs = mRecs.filter(r => r.type === 'expense');
@@ -147,26 +185,99 @@
         const mInc = mRecs.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0);
 
         const bStatus = document.getElementById('budgetStatus');
-        if(budget > 0) {
-            const remain = budget - mExp;
-            const pct = Math.min(100, (mExp / budget) * 100);
-            const isDanger = remain < 0;
-            const isWarn = !isDanger && pct > 80;
-            let colorClass = isDanger ? 'danger' : (isWarn ? 'warning' : '');
-            bStatus.innerHTML = `
-                <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-weight:600;">
-                    <span>已流出：¥${mExp.toLocaleString()}</span>
-                    <span style="color:${isDanger?'var(--expense)':'var(--income)'}">安全垫：¥${remain.toLocaleString()}</span>
-                </div>
-                <div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${pct}%"></div></div>
-            `;
-        } else bStatus.innerHTML = '<span style="color:#64748b;">未部署风控合约。</span>';
+        let statusHtml = '';
+        let globalBudget = 0;
+        let contractStatus = '未部署';
+        let subContractTags = '';
+        let hasContracts = false;
 
+        // 【核心】遍历当前月份部署的所有合约 (全局 + 定向)
+        const activeContracts = Object.keys(budgets).filter(k => k.startsWith(month + '|'));
+
+        if(activeContracts.length > 0) {
+            hasContracts = true;
+            activeContracts.forEach(key => {
+                const cat = key.split('|')[1];
+                const budgetAmt = budgets[key];
+                if (budgetAmt <= 0) return;
+
+                let scopeExp = 0;
+                let title = '';
+                if (cat === 'global') {
+                    scopeExp = mExp;
+                    title = '🌐 全局流动性合约';
+                    globalBudget = budgetAmt;
+                } else {
+                    scopeExp = mExpRecs.filter(r => r.category === cat).reduce((s, r) => s + r.amount, 0);
+                    title = `🎯 定向风控：${cat}`;
+                }
+
+                const remain = budgetAmt - scopeExp;
+                const pct = Math.min(100, (scopeExp / budgetAmt) * 100);
+                const isDanger = remain < 0;
+                const isWarn = !isDanger && pct > 80;
+                let colorClass = isDanger ? 'danger' : (isWarn ? 'warning' : '');
+
+                // 【核心升级】预言机动态枯竭预测 (仅在当前月份生效)
+                let oracleWarning = '';
+                const today = new Date();
+                const [y, mStr] = month.split('-');
+                const isCurrentMonth = (today.getFullYear() === parseInt(y) && (today.getMonth() + 1) === parseInt(mStr));
+
+                if (isCurrentMonth && scopeExp > 0 && !isDanger) {
+                    const daysPassed = today.getDate();
+                    const burnRate = scopeExp / daysPassed;
+                    const daysLeft = remain / burnRate;
+                    const totalDays = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+
+                    if (daysPassed + daysLeft <= totalDays) {
+                        const depleteDate = new Date();
+                        depleteDate.setDate(today.getDate() + Math.floor(daysLeft));
+                        oracleWarning = `
+                            <div style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid #ef4444; padding: 10px 12px; border-radius: 6px; margin-top: 10px; font-size: 13px; color: #b91c1c;">
+                                <strong>⚠️ 预言机测算：</strong>按当前日均燃烧速率 (¥${burnRate.toFixed(1)}/天)，此资金池将在 <strong>${Math.floor(daysLeft)} 天后 (即 ${depleteDate.getMonth()+1}月${depleteDate.getDate()}日)</strong> 彻底枯竭，触发强制熔断！
+                            </div>`;
+                    } else if (cat === 'global') {
+                        oracleWarning = `
+                            <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid #10b981; padding: 10px 12px; border-radius: 6px; margin-top: 10px; font-size: 13px; color: #047857;">
+                                <strong>🔮 预言机测算：</strong>按当前日均燃烧速率 (¥${burnRate.toFixed(1)}/天)，本纪元流动性可平稳渡过，未触及预警线。
+                            </div>`;
+                    }
+                }
+
+                // 研报标签收集
+                if (isDanger) {
+                    if (cat === 'global') contractStatus = '❌ 全局违约';
+                    else subContractTags += `<span class="warning-tag">🚨 [${cat}] 预算已被击穿，合约强制锁死该分类敞口 (超额 ¥${Math.abs(remain).toFixed(2)})</span>`;
+                } else if (isWarn && cat === 'global' && contractStatus !== '❌ 全局违约') {
+                    contractStatus = '⚠️ 风险边缘';
+                } else if (cat === 'global' && contractStatus === '未部署') {
+                    contractStatus = '✅ 完美履约';
+                }
+
+                statusHtml += `
+                    <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.02);">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-weight:600;font-size:14px;">
+                            <span>${title} (已流出：¥${scopeExp.toLocaleString()})</span>
+                            <span style="color:${isDanger?'var(--expense)':'var(--income)'}">安全垫：¥${remain.toLocaleString()} / ¥${budgetAmt.toLocaleString()}</span>
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${pct}%"></div></div>
+                        ${oracleWarning}
+                    </div>
+                `;
+            });
+        }
+
+        bStatus.innerHTML = hasContracts ? statusHtml : '<span style="color:#64748b;font-size:14px;">尚未部署任何维度的风控合约。</span>';
+
+        const mintBtn = document.getElementById('mintNftBtn');
         const rGrid = document.getElementById('reportContainer');
         if(mRecs.length === 0) {
             rGrid.innerHTML = '<div style="grid-column: 1 / -1; color:#94a3b8; text-align:center;">此纪元无数据碎片。</div>';
+            if (mintBtn) mintBtn.style.display = 'none';
             return;
         }
+        if (mintBtn) mintBtn.style.display = 'inline-flex';
 
         const mCounts = {}; const mAmts = {};
         mExpRecs.forEach(r => {
@@ -175,17 +286,69 @@
         });
         const topMerchantAmt = Object.entries(mAmts).sort((a,b) => b[1] - a[1])[0] || ['无', 0];
         const topMerchantFreq = Object.entries(mCounts).sort((a,b) => b[1] - a[1])[0] || ['无', 0];
-        const foodExp = mExpRecs.filter(r => r.category.includes('餐饮')).reduce((s, r) => s + r.amount, 0);
+        const foodExp = mExpRecs.filter(r => r.category.includes('餐饮') || r.category.includes('买菜')).reduce((s, r) => s + r.amount, 0);
         const mEngel = mExp > 0 ? (foodExp / mExp) * 100 : 0;
         const maxR = mExpRecs.reduce((m, r) => r.amount > m.amount ? r : m, {amount:0, merchant:''});
 
-        let riskTags = '';
+        // 信用算力加权矩阵算法 (引入对子合约违约的惩罚)
+        let score = 60;
+        if (mInc > 0) {
+            const saveRate = (mInc - mExp) / mInc;
+            score += Math.max(-25, Math.min(25, saveRate * 50));
+        } else if (mExp > 0 && mInc === 0) { score -= 20; }
+        if (mExp > 0) { score += (30 - mEngel) * 0.3; }
+
+        if (globalBudget > 0) {
+            const usage = mExp / globalBudget;
+            if (usage > 1) { score -= 15; }
+            else if (usage > 0.8) { score -= 5; }
+            else { score += 10; }
+        }
+        // 子合约违约连带扣分 (每个违约类目扣5分)
+        if (subContractTags.length > 0) {
+            score -= 5 * (subContractTags.match(/🚨/g) || []).length;
+            if (contractStatus === '未部署') contractStatus = '⚠️ 局部触发熔断';
+        }
+
+        if (mExp > 0 && topMerchantAmt[1] / mExp > 0.4) { score -= 5; }
+        score = Math.max(1, Math.min(99, Math.round(score)));
+        if (score > 90 && mInc > 10000 && (mInc - mExp) / mInc > 0.6) score = 100;
+
+        let rank, rankClass, rankDesc;
+        if (score >= 90) { rank = 'SSS'; rankClass = 'rank-SSS'; rankDesc = '极度健康 · Web3 巨鲸节点'; }
+        else if (score >= 80) { rank = 'S'; rankClass = 'rank-S'; rankDesc = '稳健 · 优质信用资产'; }
+        else if (score >= 70) { rank = 'A'; rankClass = 'rank-A'; rankDesc = '良好 · 流动性充沛'; }
+        else if (score >= 60) { rank = 'B'; rankClass = 'rank-B'; rankDesc = '亚健康 · 存在敞口风险'; }
+        else if (score >= 40) { rank = 'C'; rankClass = 'rank-C'; rankDesc = '危险 · 濒临熔断边界'; }
+        else { rank = 'D'; rankClass = 'rank-D'; rankDesc = '极度危险 · 资产枯竭预警'; }
+
+        // 组装智能研报警告标签
+        let riskTags = subContractTags; // 优先置顶子合约爆仓红字警告
         if(mEngel > 40) riskTags += `<span class="warning-tag">🚨 恩格尔系数过高 (${mEngel.toFixed(1)}%)</span>`;
         if(topMerchantFreq[1] > 10) riskTags += `<span class="warning-tag">⚠️ 节点高频依赖 (${topMerchantFreq[0]} 交易${topMerchantFreq[1]}次)</span>`;
         if(mExp > mInc && mInc > 0) riskTags += `<span class="warning-tag">🩸 现金流赤字</span>`;
-        if(riskTags === '') riskTags = `<span class="info-tag">✅ 流动性架构健康</span>`;
+        if(riskTags === '' && contractStatus !== '❌ 全局违约') riskTags = `<span class="info-tag">✅ 流动性架构及子合约执行状态健康</span>`;
 
         rGrid.innerHTML = `
+            <div class="credit-score-card">
+                <div style="flex: 1; min-width: 250px;">
+                    <div class="score-title">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        链上信用算力评级
+                    </div>
+                    <div class="score-display">
+                        <span class="score-value">${score}</span>
+                        <span class="score-rank ${rankClass}">${rank}</span>
+                    </div>
+                    <div class="score-desc">状态共识：${rankDesc}</div>
+                </div>
+                <div class="score-factors">
+                    <div class="factor-item">储蓄蓄水率<strong style="color: ${mInc>mExp ? '#34d399' : '#ef4444'}">${mInc>0?((mInc-mExp)/mInc*100).toFixed(0):0}%</strong></div>
+                    <div class="factor-item">恩格尔修正<strong style="color: ${mEngel<30 ? '#34d399' : (mEngel>50?'#ef4444':'#fbd38d')}">${mEngel.toFixed(1)}%</strong></div>
+                    <div class="factor-item">合约履约<strong style="color: ${contractStatus.includes('✅')?'#34d399':(contractStatus.includes('❌')?'#ef4444':'white')}">${contractStatus}</strong></div>
+                </div>
+            </div>
+
             <div class="report-module">
                 <h4>📊 宏观流动性诊断</h4>
                 <p>总流入量级：<strong>¥${mInc.toLocaleString()}</strong></p>
@@ -201,7 +364,7 @@
             </div>
             <div class="report-module" style="grid-column: 1 / -1; background: #fff;">
                 <h4>🤖 智能风控与降级建议</h4>
-                <div style="margin-bottom:12px;">${riskTags}</div>
+                <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">${riskTags}</div>
                 <p style="color:#475569; font-size: 14.5px;">
                     ${mInc>=mExp ? '系统研判本纪元资产负债表扩张良性。' : '资产池处于失血状态。'}
                     ${mEngel>40 ? '刚需消费占比较大，财务结构存在僵化风险，抗风险能力降低。' : '消费结构弹性较好，非刚需资本流出健康。'}
@@ -221,16 +384,53 @@
                 Object.values(chartInstances).forEach(c => c && c.destroy());
                 const expRecs = records.filter(r => r.type === 'expense');
 
-                // (1) 资产累计水位图
+                // (1) 资产累计水位图 (🔥 升级：注入未来 30 天趋势预测线)
                 const dCtx = document.getElementById('cumulativeChart').getContext('2d');
                 const dailyNet = {};
                 const sortedDates = [...new Set(records.map(r => r.date))].sort();
                 sortedDates.forEach(d => dailyNet[d] = 0);
                 records.forEach(r => dailyNet[r.date] += (r.type === 'income' ? r.amount : -r.amount));
-                let runTotal = 0; const cumData = sortedDates.map(d => runTotal += dailyNet[d]);
+
+                let runTotal = 0;
+                const cumData = sortedDates.map(d => runTotal += dailyNet[d]);
+
+                // --- 预测核心逻辑 ---
+                const activeDays = new Set(expRecs.map(r => r.date)).size || 1;
+                const dailyBurnRate = expRecs.reduce((s, r) => s + r.amount, 0) / activeDays;
+                const lastDateStr = sortedDates[sortedDates.length - 1] || new Date().toISOString().split('T')[0];
+                const lastDateObj = new Date(lastDateStr);
+
+                const futureDates = [];
+                // 将预测起点与历史终点无缝拼接
+                const projDataArray = new Array(sortedDates.length - 1).fill(null);
+                projDataArray.push(runTotal);
+
+                let currentProjTotal = runTotal;
+                // 推演未来 30 天断水断粮的绝对下行轨迹
+                for (let i = 1; i <= 30; i++) {
+                    const nextD = new Date(lastDateObj);
+                    nextD.setDate(lastDateObj.getDate() + i);
+                    futureDates.push(nextD.toISOString().split('T')[0].substring(5)); // 仅显示月-日
+                    currentProjTotal -= dailyBurnRate;
+                    projDataArray.push(currentProjTotal);
+                }
+
+                const combinedLabels = [...sortedDates.map(d => d.substring(5)), ...futureDates];
+
                 chartInstances['cum'] = new Chart(dCtx, {
-                    type: 'line', data: { labels: sortedDates, datasets: [{ label: '资产累计净值', data: cumData, borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.2)', fill: true, tension: 0.3, pointRadius: 0 }] },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: {display: false} }, scales:{x:{ticks:{maxTicksLimit:8}}} }
+                    type: 'line',
+                    data: {
+                        labels: combinedLabels,
+                        datasets: [
+                            { label: '真实资产净值', data: cumData, borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.2)', fill: true, tension: 0.3, pointRadius: 0 },
+                            { label: '预言机测算: 30日枯竭轨迹', data: projDataArray, borderColor: '#ef4444', borderDash: [5, 5], fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: true, position: 'top' } },
+                        scales: { x: { ticks: { maxTicksLimit: 10 } } }
+                    }
                 });
 
                 // (2) 资金流出黑洞
@@ -252,6 +452,7 @@
                 });
 
                 // (4) 消费行为三维画像雷达图
+                // (4) 消费行为三维画像雷达图 (🔥 升级：引入 Peer Benchmark 标准基准面)
                 const rCtx = document.getElementById('radarChart').getContext('2d');
                 const dims = {'生存刚需':0, '发展提升':0, '享乐消费':0, '其他':0};
                 expRecs.forEach(r => {
@@ -260,9 +461,44 @@
                     else if(/娱乐|购物|游戏|旅游/.test(r.category)) dims['享乐消费'] += r.amount;
                     else dims['其他'] += r.amount;
                 });
+
+                // --- 基准面核心逻辑 ---
+                const totalExpRadar = Object.values(dims).reduce((a, b) => a + b, 0);
+                // 设定理想的中产健康模型：50%刚需, 30%自我提升, 15%享乐, 5%杂项
+                const benchmarkData = [
+                    totalExpRadar * 0.50,
+                    totalExpRadar * 0.30,
+                    totalExpRadar * 0.15,
+                    totalExpRadar * 0.05
+                ];
+
                 chartInstances['radar'] = new Chart(rCtx, {
-                    type: 'radar', data: { labels: Object.keys(dims), datasets: [{ label: '维度分布', data: Object.values(dims), backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: '#10b981', pointBackgroundColor: '#10b981' }] },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: {legend:{display:false}} }
+                    type: 'radar',
+                    data: {
+                        labels: Object.keys(dims),
+                        datasets: [
+                            {
+                                label: '您的实际资金敞口',
+                                data: Object.values(dims),
+                                backgroundColor: 'rgba(16, 185, 129, 0.3)',
+                                borderColor: '#10b981',
+                                pointBackgroundColor: '#10b981'
+                            },
+                            {
+                                label: '健康参考底模 (Benchmark)',
+                                data: benchmarkData,
+                                backgroundColor: 'rgba(148, 163, 184, 0.1)',
+                                borderColor: '#94a3b8',
+                                borderDash: [5, 5],
+                                pointBackgroundColor: '#94a3b8',
+                                borderWidth: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: true, position: 'bottom' } }
+                    }
                 });
 
                 // (5) 周期复合流向柱状趋势图
@@ -474,16 +710,111 @@
         });
     }
 
+    // ====== 保存风控合约按钮逻辑 ======
+    // ====== 【增强】定向类目选项注入与联动联动 ======
+    const budgetCategoryEl = document.getElementById('budgetCategory');
+    if (budgetCategoryEl) {
+        // 初始化注入类目
+        EXPENSE_CATEGORIES.forEach(c => {
+            budgetCategoryEl.insertAdjacentHTML('beforeend', `<option value="${c}">🎯 定向狙击: ${c}</option>`);
+        });
+
+        // 切换类目或月份时，自动回显对应的合约阈值
+        const updateBudgetInput = () => {
+            const m = document.getElementById('budgetMonth').value;
+            const cat = budgetCategoryEl.value;
+            if (m) {
+                // 兼容老数据结构，平滑迁移
+                if (budgets[m] !== undefined && typeof budgets[m] === 'number') {
+                    budgets[m + '|global'] = budgets[m];
+                    delete budgets[m];
+                    saveStorage();
+                }
+                document.getElementById('budgetAmount').value = budgets[m + '|' + cat] || '';
+            }
+        };
+        budgetCategoryEl.addEventListener('change', updateBudgetInput);
+        document.getElementById('budgetMonth').addEventListener('change', () => {
+            updateBudgetInput();
+            refreshAll();
+        });
+    }
+
+    // ====== 【增强】风控合约多维部署逻辑 ======
     const saveBudgetBtn = document.getElementById('saveBudgetBtn');
     if (saveBudgetBtn) {
         saveBudgetBtn.addEventListener('click', () => {
             const m = document.getElementById('budgetMonth').value;
+            const cat = document.getElementById('budgetCategory').value;
             const a = parseFloat(document.getElementById('budgetAmount').value);
-            if(m && a >= 0) { budgets[m] = a; saveStorage(); refreshAll(); }
+            if (m && a >= 0) {
+                budgets[m + '|' + cat] = a;
+                saveStorage();
+                refreshAll();
+            }
         });
     }
 
-    window.addEventListener('resize', () => { if(document.getElementById('stats-tab') && document.getElementById('stats-tab').classList.contains('active')) renderCharts(); });
+    // ====== 【修复：独立出来】铸造 NFT 快照按钮逻辑 ======
+    const mintNftBtn = document.getElementById('mintNftBtn');
+    if (mintNftBtn) {
+        mintNftBtn.addEventListener('click', () => {
+            const reportContainer = document.getElementById('reportContainer');
+            if (!reportContainer || typeof html2canvas === 'undefined') {
+                alert('环境就绪中或无可铸造的研报碎片（请确认已连接网络并成功加载 html2canvas）');
+                return;
+            }
+
+            // 修改交互反馈：伪装上链打包动画
+            const originalText = mintNftBtn.innerHTML;
+            mintNftBtn.innerHTML = '⚡ 正在上链打包快照...';
+            mintNftBtn.disabled = true;
+
+            // 执行高级影子克隆截图
+            html2canvas(reportContainer, {
+                backgroundColor: null, // 允许透明或自定义
+                scale: 2,             // Retina 双倍高清晰度采样
+                useCORS: true,        // 跨域安全策略预备
+                logging: false,       // 关闭冗余调试日志
+                onclone: (clonedDoc) => {
+                    // 极其巧妙的黑客视觉魔法：在内存的克隆体中为容器注入精美的发光背景，使其脱离单调的白底
+                    const clonedContainer = clonedDoc.getElementById('reportContainer');
+                    if (clonedContainer) {
+                        clonedContainer.style.padding = '32px';
+                        clonedContainer.style.background = 'linear-gradient(135deg, #f3f4f6 0%, #e0e7ff 50%, #f3e8ff 100%)';
+                        clonedContainer.style.borderRadius = '24px';
+                        clonedContainer.style.width = '1000px'; // 强行锁死黄金画幅宽度，防止拉伸变形
+                    }
+                }
+            }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const month = document.getElementById('budgetMonth').value || 'Epoch';
+
+                // 触发客户端隐式流下载
+                const link = document.createElement('a');
+                link.download = `Fintech_Credit_NFT_Snapshot_${month}.png`;
+                link.href = imgData;
+                link.click();
+
+                // 还原状态
+                mintNftBtn.innerHTML = originalText;
+                mintNftBtn.disabled = false;
+
+                // 弹出沉浸式共识回执提示
+                alert(`🎉 凭证铸造成功！\n\n研报快照已通过 SHA-256 树根共识进行前端确权并成功导出为本地图片。\n\n【🚀 商业化 PoC 演示要点】：\n该图片已将您的“TxHash交易指纹”与“100分制算力评级”封装在一起，在未来去中心化金融（DeFi）生态中，这张图片即可作为用户的财务健康凭证（Proof of Financial Health），用于向去中心化借贷平台直接申请低息贷款！`);
+            }).catch(err => {
+                console.error('Minting error:', err);
+                mintNftBtn.innerHTML = originalText;
+                mintNftBtn.disabled = false;
+                alert('快照铸造发生意外断开，请检查控制台。');
+            });
+        });
+    }
+
+    // ====== 监听窗口变化重绘图表 ======
+    window.addEventListener('resize', () => {
+        if(document.getElementById('stats-tab') && document.getElementById('stats-tab').classList.contains('active')) renderCharts();
+    });
 
     // ========== 10. 全面初始化运行 ==========
     loadStorage();

@@ -9,6 +9,7 @@
             onerror="window.ChartLoaded = false;"
             onload="window.ChartLoaded = true;">
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
 <div class="container">
@@ -52,6 +53,12 @@
                 <div class="stat-card finance"><div class="value count-up" id="savingsRate" data-suffix="%">0.0</div><div class="label">储蓄蓄水率 (Savings Rate)</div></div>
                 <div class="stat-card finance"><div class="value count-up" id="volatility">0.00</div><div class="label">流动性波动率 (Volatility, σ)</div></div>
                 <div class="stat-card default"><div class="value count-up" id="engelCoefficient" data-suffix="%" style="color:var(--expense)">0.0</div><div class="label">恩格尔系数 (Engel)</div></div>
+
+                <div class="stat-card finance" id="runwayCard" style="transition: background 0.5s;">
+                    <div class="value" id="cashRunway" style="font-family:'SF Pro Display', sans-serif;">0 Days</div>
+                    <div class="label">绝对生存周期 (Cash Runway)</div>
+                    <div class="desc">断水断粮极端预测</div>
+                </div>
             </div>
         </div>
 
@@ -173,19 +180,28 @@
 
     <div id="budget-tab" class="tab-content">
         <div class="card">
-            <div class="card-title">📅 周期资金熔断策略合约部署</div>
+            <div class="card-title">📅 周期资金/类目熔断策略合约部署</div>
             <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
                 <label style="font-weight:600;">监控纪元：</label>
-                <input type="month" id="budgetMonth" style="padding:10px;border:1px solid #cbd5e1;border-radius:10px;">
-                <label style="font-weight:600;margin-left:10px;">风控熔断阈值 (¥)：</label>
+                <input type="month" id="budgetMonth" style="padding:10px;border:1px solid #cbd5e1;border-radius:10px;width:140px;">
+
+                <label style="font-weight:600;margin-left:10px;">风控维度：</label>
+                <select id="budgetCategory" style="padding:10px;border:1px solid #cbd5e1;border-radius:10px;width:160px;background:white;">
+                    <option value="global">🌐 全局流动性</option>
+                </select>
+
+                <label style="font-weight:600;margin-left:10px;">熔断阈值 (¥)：</label>
                 <input type="number" id="budgetAmount" step="0.01" placeholder="设定流出上限" style="padding:10px;border:1px solid #cbd5e1;border-radius:10px;width:140px;">
                 <button class="btn btn-primary" id="saveBudgetBtn">部署/更新风控合约</button>
             </div>
-            <div id="budgetStatus" style="margin-top:24px;"></div>
+            <div id="budgetStatus" style="margin-top:24px; display:flex; flex-direction:column; gap:16px;"></div>
         </div>
 
         <div class="card">
-            <div class="card-title" style="border-bottom:none;">📝 算法级结构化研报 (Auto-Report)</div>
+            <div class="card-title" style="border-bottom:none;">
+                <span>📝 算法级结构化研报 (Auto-Report)</span>
+                <button class="btn btn-crypto" id="mintNftBtn" style="display: none; font-size: 13px; padding: 6px 14px;">📸 铸造研报快照 (Mint as NFT)</button>
+            </div>
             <div id="reportContainer" class="report-grid">
                 <div style="grid-column: 1 / -1; text-align:center; padding:40px; color:#94a3b8;">尚未生成数据模型，请导入流水并选择纪元。</div>
             </div>
